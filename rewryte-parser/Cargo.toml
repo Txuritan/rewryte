@@ -1,0 +1,22 @@
+[package]
+name = "rewryte-parser"
+version = "0.1.0"
+authors = ["Txuritan <txuritan@protonmail.com>"]
+edition = "2018"
+
+description = "A DAL parser made for rewryte"
+repository = "https://gitlab.com/Txuritan/rewryte"
+
+readme = "../README.md"
+license = "MIT OR Apache-2.0"
+
+keywords = ["database", "schema", "codegen"]
+
+workspace = ".."
+
+[dependencies]
+codespan-reporting = "0.9"
+either = "1.5"
+pest = "2.1"
+pest_derive = "2.1"
+thiserror = "1.0.20"

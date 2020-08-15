@@ -1,0 +1,26 @@
+[package]
+name = "rewryte"
+version = "0.1.0"
+authors = ["Txuritan <txuritan@protonmail.com>"]
+edition = "2018"
+
+description = "A library to transform and generate code based off SQL schema"
+repository = "https://gitlab.com/Txuritan/rewryte"
+
+readme = "../README.md"
+license = "MIT OR Apache-2.0"
+
+keywords = ["database", "schema", "codegen"]
+
+workspace = ".."
+
+[features]
+sqlite = [ "rusqlite", "rewryte-generator/sqlite", "rewryte-macro/sqlite" ]
+
+[dependencies]
+rewryte-generator = { path = "../rewryte-generator", version = "0.1" }
+rewryte-macro = { path = "../rewryte-macro", version = "0.1" }
+rewryte-parser = { path = "../rewryte-parser", version = "0.1" }
+
+anyhow = "1.0"
+rusqlite = { version = "0.23", default-features = false, optional = true }

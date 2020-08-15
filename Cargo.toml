@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "rewryte",
+    "rewryte-cli",
+    "rewryte-generator",
+    "rewryte-macro",
+    "rewryte-parser",
+]
