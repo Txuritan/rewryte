@@ -15,9 +15,9 @@ keywords = ["database", "schema", "codegen", "cli"]
 workspace = ".."
 
 [features]
-sqlite = [ ]
 postgres = [ ]
 serde = [ ]
+sqlite = [ ]
 
 [dependencies]
 rewryte-parser = { path = "../rewryte-parser", version = "0.1" }

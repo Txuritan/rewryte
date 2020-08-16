@@ -15,7 +15,9 @@ keywords = ["database", "schema", "codegen"]
 workspace = ".."
 
 [features]
-sqlite = [ "rusqlite", "rewryte-generator/sqlite", "rewryte-macro/sqlite" ]
+postgres = [ "rewryte-generator/postgres" ]
+serde = [ "rewryte-generator/serde" ]
+sqlite = [ "rusqlite", "rewryte-generator/sqlite" ]
 
 [dependencies]
 rewryte-generator = { path = "../rewryte-generator", version = "0.1" }
