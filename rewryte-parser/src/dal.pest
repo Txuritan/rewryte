@@ -8,7 +8,7 @@ exists = { "?" }
 variant = @{ ident }
 
 column = { ident ~ column_type ~ null? ~ ( modifiers )? }
-column_type = { ( "bigInt" | "bool" | "boolean" | "char" | "dateTime" | "decimal" | "float" | "int" | "mediumInt" | "number" | "numeric" | "real" | "serial" | "smallInt" | "text" | "varchar" ) }
+column_type = @{ ( "bigInt" | "bool" | "boolean" | "char" | "dateTime" | "decimal" | "float" | "int" | "mediumInt" | "number" | "numeric" | "real" | "serial" | "smallInt" | "text" | "varchar" | ident ) }
 null = { "!" }
 
 modifiers = { ( "[" ~ ( ( ( modifier ~ "," )+ ~ modifier ) | modifier ) ~ "]" ) }
