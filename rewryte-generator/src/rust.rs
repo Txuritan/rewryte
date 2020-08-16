@@ -86,7 +86,7 @@ fn write_enum(decl: &Enum, writer: &mut impl io::Write) -> Result<(), Error> {
                 "{}",
                 quote::quote! {
                     impl<'r> postgres_types::FromSql<'r> for #ident {
-                        fn from_sql(_type: &postgres_types::Type, buf: &'a [u8]) -> std::result::Result<
+                        fn from_sql(_type: &postgres_types::Type, buf: &'r [u8]) -> std::result::Result<
                             #ident,
                             std::boxed::Box<dyn std::error::Error + std::marker::Sync + std::marker::Send>
                         > {
