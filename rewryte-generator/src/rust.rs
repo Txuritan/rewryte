@@ -27,7 +27,24 @@ fn write_item(item: &Item, scope: &mut Scope) -> Result<(), Error> {
 }
 
 fn write_enum(decl: &Enum, scope: &mut Scope) -> Result<(), Error> {
-    let item = scope.new_enum(decl.name);
+    let item = scope.new_enum(decl.name).vis("pub")
+        .derive("Clone")
+        .derive("Debug")
+        .derive("Hash")
+        .derive("PartialEq").derive("Eq")
+        .derive("PartialOrd").derive("Ord");
+
+    #[cfg(feature = "postgres")]
+    {
+        item.derive("postgres_types::ToSql")
+            .derive("postgres_types::FromSql");
+    }
+
+    #[cfg(feature = "serde")]
+    {
+        item.derive("serde::Deserialize")
+            .derive("serde::Serialize");
+    }
 
     for variant in &decl.variants {
         item.new_variant(variant);
@@ -37,7 +54,18 @@ fn write_enum(decl: &Enum, scope: &mut Scope) -> Result<(), Error> {
 }
 
 fn write_table(decl: &Table, scope: &mut Scope) -> Result<(), Error> {
-    let item = scope.new_struct(decl.name);
+    let item = scope.new_struct(decl.name).vis("pub")
+        .derive("Clone")
+        .derive("Debug")
+        .derive("Hash")
+        .derive("PartialEq").derive("Eq")
+        .derive("PartialOrd").derive("Ord");
+
+    #[cfg(feature = "serde")]
+    {
+        item.derive("serde::Deserialize")
+            .derive("serde::Serialize");
+    }
 
     let mut buff = String::new();
 
@@ -67,9 +95,9 @@ fn write_table(decl: &Table, scope: &mut Scope) -> Result<(), Error> {
             write!(&mut buff, ">")?;
         }
 
-        let low = column.name.to_lowercase();
+        let name = format!("pub {}", column.name.to_lowercase());
 
-        item.field(&low, buff.clone());
+        item.field(&name, buff.clone());
 
         buff.clear();
     }

@@ -16,6 +16,8 @@ workspace = ".."
 
 [features]
 sqlite = [ ]
+postgres = [ ]
+serde = [ ]
 
 [dependencies]
 rewryte-parser = { path = "../rewryte-parser", version = "0.1" }
