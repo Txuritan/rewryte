@@ -2,6 +2,7 @@ use {
     crate::Error,
     rewryte_parser::models::{Enum, Item, Schema, Table, Types},
     std::io,
+    heck::SnakeCase,
 };
 
 pub fn write_schema(schema: &Schema, writer: &mut impl io::Write) -> Result<(), Error> {
@@ -183,8 +184,7 @@ fn write_table(decl: &Table, writer: &mut impl io::Write) -> Result<(), Error> {
     let field_names = decl
         .columns
         .iter()
-        .map(|c| c.name)
-        .map(|c| quote::format_ident!("{}", c))
+        .map(|c| quote::format_ident!("{}", c.name.to_snake_case()))
         .collect::<Vec<_>>();
 
     let field_types = decl
@@ -192,7 +192,7 @@ fn write_table(decl: &Table, writer: &mut impl io::Write) -> Result<(), Error> {
         .iter()
         .map(|c| {
             (
-                c,
+                c.null,
                 match c.typ {
                     Types::Char => quote::quote! { char },
                     Types::Varchar | Types::Text => quote::quote! { std::string::String },
@@ -213,8 +213,8 @@ fn write_table(decl: &Table, writer: &mut impl io::Write) -> Result<(), Error> {
                 },
             )
         })
-        .map(|(c, t)| {
-            if c.null {
+        .map(|(null, t)| {
+            if null {
                 quote::quote! { std::option::Option<#t> }
             } else {
                 t
