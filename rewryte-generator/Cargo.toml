@@ -15,6 +15,7 @@ keywords = ["database", "schema", "codegen", "cli"]
 workspace = ".."
 
 [features]
+default = [ "sqlite" ]
 postgres = [ ]
 serde = [ ]
 sqlite = [ ]
@@ -22,6 +23,7 @@ sqlite = [ ]
 [dependencies]
 rewryte-parser = { path = "../rewryte-parser", version = "0.1" }
 
-codegen = "0.1"
 heck = "0.3"
+proc-macro2 = "1.0"
+quote = "1.0"
 thiserror = "1.0.20"

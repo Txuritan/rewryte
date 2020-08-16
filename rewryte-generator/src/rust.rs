@@ -1,186 +1,268 @@
 use {
     crate::Error,
-    codegen::Scope,
     rewryte_parser::models::{Enum, Item, Schema, Table, Types},
-    std::{fmt::Write, io},
-    heck::SnakeCase,
+    std::io,
 };
 
 pub fn write_schema(schema: &Schema, writer: &mut impl io::Write) -> Result<(), Error> {
-    let mut scope = Scope::new();
-
     for item in &schema.items {
-        write_item(item, &mut scope)?;
+        write_item(item, writer)?;
     }
-
-    write!(writer, "{}", scope.to_string())?;
 
     Ok(())
 }
 
-fn write_item(item: &Item, scope: &mut Scope) -> Result<(), Error> {
+fn write_item(item: &Item, writer: &mut impl io::Write) -> Result<(), Error> {
     match &item {
-        Item::Enum(decl) => write_enum(decl, scope)?,
-        Item::Table(decl) => write_table(decl, scope)?,
+        Item::Enum(decl) => write_enum(decl, writer)?,
+        Item::Table(decl) => write_table(decl, writer)?,
     }
 
     Ok(())
 }
 
-fn write_enum(decl: &Enum, scope: &mut Scope) -> Result<(), Error> {
-    let item = scope
-        .new_enum(decl.name)
-        .vis("pub")
-        .derive("Clone")
-        .derive("Debug")
-        .derive("Hash")
-        .derive("PartialEq")
-        .derive("Eq")
-        .derive("PartialOrd")
-        .derive("Ord");
+fn write_enum(decl: &Enum, writer: &mut impl io::Write) -> Result<(), Error> {
+    let ident = quote::format_ident!("{}", decl.name);
 
-    #[cfg(feature = "serde")]
+    let derive = if cfg!(feature = "serde") {
+        quote::quote! {
+            #[derive(serde::Deserialize, serde::Serialize)]
+        }
+    } else {
+        quote::quote! {}
+    };
+
+    let variants = decl
+        .variants
+        .iter()
+        .map(|v| quote::format_ident!("{}", v))
+        .collect::<Vec<_>>();
+
+    writeln!(
+        writer,
+        "{}",
+        quote::quote! {
+            #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+            #derive
+            pub enum #ident {
+                #( #variants, )*
+            }
+        }
+    )?;
+
+    #[cfg(feature = "postgres")]
     {
-        item.derive("serde::Deserialize").derive("serde::Serialize");
-    }
+        use heck::KebabCase;
 
-    for variant in &decl.variants {
-        item.new_variant(variant);
+        let idents = std::iter::repeat(ident);
+        let num_variants = decl.variants.len();
+
+        let variants_kebab = decl
+            .variants
+            .iter()
+            .map(|s| s.to_kebab_case())
+            .collect::<Vec<String>>();
+
+        {
+            writeln!(
+                writer,
+                "{}",
+                quote::quote! {
+                    impl<'r> postgres_types::FromSql<'r> for #ident {
+                        fn from_sql(_type: &postgres_types::Type, buf: &'a [u8]) -> std::result::Result<
+                            #ident,
+                            std::boxed::Box<dyn std::error::Error + std::marker::Sync + std::marker::Send>
+                        > {
+                            match std::str::from_utf8(buf)? {
+                                #(
+                                    #variants_kebab => std::result::Result::Ok(#idents::#variants),
+                                )*
+                                s => {
+                                    std::result::Result::Err(
+                                        std::convert::Into::into(format!("invalid variant `{}`", s))
+                                    )
+                                }
+                            }
+                        }
+
+                        fn accepts(type_: &postgres_types::Type) -> bool {
+                            if type_.name() != #name {
+                                return false;
+                            }
+
+                            match *type_.kind() {
+                                ::postgres_types::Kind::Enum(ref variants) => {
+                                    if variants.len() != #num_variants {
+                                        return false;
+                                    }
+
+                                    variants.iter().all(|v| {
+                                        match &**v {
+                                            #(
+                                                #variant_names => true,
+                                            )*
+                                            _ => false,
+                                        }
+                                    })
+                                }
+                                _ => false,
+                            }
+                        }
+                    }
+                }
+            )?;
+        }
     }
 
     #[cfg(feature = "sqlite")]
     {
         use heck::KebabCase;
 
+        let variants_kebab = decl
+            .variants
+            .iter()
+            .map(|s| s.to_kebab_case())
+            .collect::<Vec<String>>();
+
         {
-            let to_sql = scope
-                .new_impl(decl.name)
-                .impl_trait("rusqlite::types::ToSql");
+            let idents = std::iter::repeat(ident.clone());
 
-            let to_sql_fun = to_sql
-                .new_fn("to_sql")
-                .arg_ref_self()
-                .ret("rusqlite::Result<rusqlite::types::ToSqlOutput>")
-                .line("match self {");
-
-            for (i, column) in decl.variants.iter().enumerate() {
-                to_sql_fun.line(format!(
-                    r#"{}::{} =>  Ok("{}".into()),"#,
-                    decl.name,
-                    column,
-                    column.to_kebab_case(),
-                ));
-            }
-
-            to_sql_fun.line("}");
+            writeln!(
+                writer,
+                "{}",
+                quote::quote! {
+                    impl rusqlite::types::ToSql for #ident {
+                        fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput> {
+                            match self {
+                                #(
+                                    #idents::#variants => std::result::Result::Ok(#variants_kebab.into()),
+                                )*
+                            }
+                        }
+                    }
+                }
+            )?;
         }
 
         {
-            let from_sql = scope
-                .new_impl(decl.name)
-                .impl_trait("rusqlite::types::FromSql");
+            let idents = std::iter::repeat(ident.clone());
 
-            let from_sql_fun = from_sql
-                .new_fn("column_result")
-                .arg("value", "rusqlite::types::ValueRef")
-                .ret("rusqlite::types::FromSqlResult<Self>")
-                .line("value.as_str().and_then(|s| match s {");
-
-            for (i, column) in decl.variants.iter().enumerate() {
-                from_sql_fun.line(format!(
-                    r#""{}" => Ok({}::{}),"#,
-                    column.to_kebab_case(),
-                    decl.name,
-                    column,
-                ));
-            }
-
-            from_sql_fun.line("_ => Err(rusqlite::types::FromSqlError::InvalidType),");
-            from_sql_fun.line("})");
+            writeln!(
+                writer,
+                "{}",
+                quote::quote! {
+                    impl rusqlite::types::FromSql for #ident {
+                        fn column_result(value: rusqlite::types::ValueRef) -> rusqlite::types::FromSqlResult<Self> {
+                            value.as_str().and_then(|s| match s {
+                                #(
+                                    #variants_kebab => Ok(#idents::#variants),
+                                )*
+                                _ => Err(rusqlite::types::FromSqlError::InvalidType),
+                            })
+                        }
+                    }
+                }
+            )?;
         }
     }
 
     Ok(())
 }
 
-fn write_table(decl: &Table, scope: &mut Scope) -> Result<(), Error> {
-    let item = scope
-        .new_struct(decl.name)
-        .vis("pub")
-        .derive("Clone")
-        .derive("Debug")
-        .derive("Hash")
-        .derive("PartialEq")
-        .derive("Eq")
-        .derive("PartialOrd")
-        .derive("Ord");
+fn write_table(decl: &Table, writer: &mut impl io::Write) -> Result<(), Error> {
+    let ident = quote::format_ident!("{}", decl.name);
 
-    #[cfg(feature = "serde")]
-    {
-        item.derive("serde::Deserialize").derive("serde::Serialize");
-    }
-
-    let mut buff = String::new();
-
-    for column in &decl.columns {
-        if column.null {
-            write!(&mut buff, "std::option::Option<")?;
+    let derive = if cfg!(feature = "serde") {
+        quote::quote! {
+            #[derive(serde::Deserialize, serde::Serialize)]
         }
+    } else {
+        quote::quote! {}
+    };
 
-        write!(
-            &mut buff,
-            "{}",
-            match column.typ {
-                Types::Char => "char",
-                Types::Varchar | Types::Text => "String",
-                Types::Number | Types::Int | Types::Serial | Types::MediumInt => "i32",
-                Types::SmallInt => "i16",
-                Types::BigInt => "i64",
-                Types::Float | Types::Real | Types::Decimal => "f64",
-                Types::Numeric => "REAL",
-                Types::DateTime => "chrono::DateTime<chrono::Utc>",
-                Types::Boolean => "bool",
-                Types::Raw(raw) => raw,
+    let field_names = decl
+        .columns
+        .iter()
+        .map(|c| c.name)
+        .map(|c| quote::format_ident!("{}", c))
+        .collect::<Vec<_>>();
+
+    let field_types = decl
+        .columns
+        .iter()
+        .map(|c| {
+            (
+                c,
+                match c.typ {
+                    Types::Char => quote::quote! { char },
+                    Types::Varchar | Types::Text => quote::quote! { std::string::String },
+                    Types::Number | Types::Int | Types::Serial | Types::MediumInt => {
+                        quote::quote! { i32 }
+                    }
+                    Types::SmallInt => quote::quote! { i16 },
+                    Types::BigInt => quote::quote! { i64 },
+                    Types::Float | Types::Real | Types::Decimal => quote::quote! { f64 },
+                    Types::Numeric => quote::quote! { f32 },
+                    Types::DateTime => quote::quote! { chrono::DateTime<chrono::Utc> },
+                    Types::Boolean => quote::quote! { bool },
+                    Types::Raw(raw) => quote::quote! { #raw },
+                },
+            )
+        })
+        .map(|(c, t)| {
+            if c.null {
+                quote::quote! { std::option::Option<#t> }
+            } else {
+                t
             }
-        )?;
+        })
+        .collect::<Vec<_>>();
 
-        if column.null {
-            write!(&mut buff, ">")?;
+    writeln!(
+        writer,
+        "{}",
+        quote::quote! {
+            #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+            #derive
+            pub struct #ident {
+                #(
+                    pub #field_names: #field_types,
+                )*
+            }
         }
+    )?;
 
-        let name = format!("pub {}", column.name.to_snake_case());
-
-        item.field(&name, buff.clone());
-
-        buff.clear();
-    }
-
-    buff.clear();
+    #[cfg(feature = "postgres")]
+    {}
 
     #[cfg(feature = "sqlite")]
     {
-        scope.import("anyhow", "Context");
+        let ids = (0..(decl.columns.len())).map(|n| n).collect::<Vec<usize>>();
+        let messages = ids
+            .iter()
+            .map(|n| format!("Failed to get data for row index {}", n))
+            .collect::<Vec<_>>();
 
-        let from_row = scope
-            .new_impl(decl.name)
-            .impl_trait("rewryte::sqlite::FromRow");
+        writeln!(
+            writer,
+            "{}",
+            quote::quote! {
+                impl rewryte::sqlite::FromRow for #ident {
+                    fn from_row(row: &rusqlite::Row<'_>) -> anyhow::Result<Self>
+                    where
+                        Self: Sized,
+                    {
+                        use anyhow::Context;
 
-        let fun = from_row
-            .new_fn("from_row")
-            .arg("row", "&rusqlite::Row<'_>")
-            .ret("anyhow::Result<Self>")
-            .bound("Self", "Sized")
-            .line("Ok(Self {");
-
-        for (i, column) in decl.columns.iter().enumerate() {
-            fun.line(format!(
-                r#"{name}: row.get({id}).context("Failed to get data for row index {id}")?,"#,
-                name = column.name.to_snake_case(),
-                id = i,
-            ));
-        }
-
-        fun.line("})");
+                        std::result::Result::Ok(Self {
+                            #(
+                                #field_names: row.get(#ids).context(#messages),
+                            )*
+                        })
+                    }
+                }
+            }
+        )?;
     }
 
     Ok(())

@@ -16,7 +16,6 @@ workspace = ".."
 
 [dependencies]
 codespan-reporting = "0.9"
-either = "1.5"
 pest = "2.1"
 pest_derive = "2.1"
 thiserror = "1.0.20"
