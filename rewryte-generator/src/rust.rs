@@ -73,6 +73,7 @@ fn write_enum(decl: &Enum, writer: &mut impl io::Write) -> Result<(), Error> {
         let idents = std::iter::repeat(ident);
         let num_variants = decl.variants.len();
 
+        let variant_names = &decl.variants;
         let variants_kebab = decl
             .variants
             .iter()
@@ -102,7 +103,7 @@ fn write_enum(decl: &Enum, writer: &mut impl io::Write) -> Result<(), Error> {
                         }
 
                         fn accepts(type_: &postgres_types::Type) -> bool {
-                            if type_.name() != #name {
+                            if type_.name() != #ident {
                                 return false;
                             }
 
