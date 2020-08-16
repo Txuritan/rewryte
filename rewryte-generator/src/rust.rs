@@ -44,6 +44,52 @@ fn write_enum(decl: &Enum, scope: &mut Scope) -> Result<(), Error> {
         item.new_variant(variant);
     }
 
+    #[cfg(feature = "sqlite")]
+    {
+        use heck::KebabCase;
+
+        let to_sql = scope
+            .new_impl(decl.name)
+            .impl_trait("rusqlite::types::ToSql");
+
+        let to_sql_fun = to_sql
+            .new_fn("to_sql")
+            .arg_ref_self()
+            .ret("rusqlite::Result<rusqlite::types::ToSqlOutput>")
+            .line("match self {");
+
+        let from_sql = scope
+            .new_impl(decl.name)
+            .impl_trait("rusqlite::types::FromSql");
+
+        let from_sql_fun = from_sql
+            .new_fn("column_result")
+            .arg("value", "rusqlite::types::ValueRef")
+            .ret("rusqlite::types::FromSqlResult<Self>")
+            .line("value.as_str().and_then(|s| match s.as_str() {");
+
+        for (i, column) in decl.variants.iter().enumerate() {
+            to_sql_fun.line(format!(
+                r#"{}::{} =>  Ok("{}".into()),"#,
+                decl.name,
+                column,
+                column.to_kebab_case(),
+            ));
+
+            from_sql_fun.line(format!(
+                r#""{}"" => Ok({}::{}),"#,
+                column.to_kebab_case(),
+                decl.name,
+                column,
+            ));
+        }
+
+        to_sql_fun.line("}");
+
+        from_sql_fun.line("_ => Err(rusqlite::types::FromSqlError::InvalidType),");
+        from_sql_fun.line("})");
+    }
+
     Ok(())
 }
 
