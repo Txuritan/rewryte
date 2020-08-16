@@ -17,11 +17,11 @@ workspace = ".."
 [features]
 postgres = [ ]
 serde = [ ]
-sqlite = [ "heck" ]
+sqlite = [ ]
 
 [dependencies]
 rewryte-parser = { path = "../rewryte-parser", version = "0.1" }
 
 codegen = "0.1"
-heck = { version = "0.3", optional = true }
+heck = "0.3"
 thiserror = "1.0.20"

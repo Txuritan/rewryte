@@ -3,6 +3,7 @@ use {
     codegen::Scope,
     rewryte_parser::models::{Enum, Item, Schema, Table, Types},
     std::{fmt::Write, io},
+    heck::SnakeCase,
 };
 
 pub fn write_schema(schema: &Schema, writer: &mut impl io::Write) -> Result<(), Error> {
@@ -87,7 +88,7 @@ fn write_enum(decl: &Enum, scope: &mut Scope) -> Result<(), Error> {
 
             for (i, column) in decl.variants.iter().enumerate() {
                 from_sql_fun.line(format!(
-                    r#""{}"" => Ok({}::{}),"#,
+                    r#""{}" => Ok({}::{}),"#,
                     column.to_kebab_case(),
                     decl.name,
                     column,
@@ -147,7 +148,7 @@ fn write_table(decl: &Table, scope: &mut Scope) -> Result<(), Error> {
             write!(&mut buff, ">")?;
         }
 
-        let name = format!("pub {}", column.name.to_lowercase());
+        let name = format!("pub {}", column.name.to_snake_case());
 
         item.field(&name, buff.clone());
 
@@ -174,7 +175,7 @@ fn write_table(decl: &Table, scope: &mut Scope) -> Result<(), Error> {
         for (i, column) in decl.columns.iter().enumerate() {
             fun.line(format!(
                 r#"{name}: row.get({id}).context("Failed to get data for row index {id}")?,"#,
-                name = column.name.to_lowercase(),
+                name = column.name.to_snake_case(),
                 id = i,
             ));
         }
