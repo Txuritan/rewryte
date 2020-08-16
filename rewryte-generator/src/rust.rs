@@ -70,7 +70,7 @@ fn write_enum(decl: &Enum, writer: &mut impl io::Write) -> Result<(), Error> {
 
     #[cfg(feature = "postgres")]
     {
-        let idents = std::iter::repeat(ident);
+        let idents = std::iter::repeat(ident.clone());
         let num_variants = decl.variants.len();
 
         let variant_names = &decl.variants;
