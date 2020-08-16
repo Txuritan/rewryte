@@ -70,6 +70,7 @@ fn write_enum(decl: &Enum, writer: &mut impl io::Write) -> Result<(), Error> {
 
     #[cfg(feature = "postgres")]
     {
+        let name = decl.name;
         let idents = std::iter::repeat(ident.clone());
         let num_variants = decl.variants.len();
 
@@ -103,7 +104,7 @@ fn write_enum(decl: &Enum, writer: &mut impl io::Write) -> Result<(), Error> {
                         }
 
                         fn accepts(type_: &postgres_types::Type) -> bool {
-                            if type_.name() != #ident {
+                            if type_.name() != #name {
                                 return false;
                             }
 
