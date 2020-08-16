@@ -205,7 +205,11 @@ fn write_table(decl: &Table, writer: &mut impl io::Write) -> Result<(), Error> {
                     Types::Numeric => quote::quote! { f32 },
                     Types::DateTime => quote::quote! { chrono::DateTime<chrono::Utc> },
                     Types::Boolean => quote::quote! { bool },
-                    Types::Raw(raw) => quote::quote! { #raw },
+                    Types::Raw(raw) => {
+                        let raw_ident = quote::format_ident!("{}", raw);
+
+                        quote::quote! { #raw_ident }
+                    },
                 },
             )
         })
