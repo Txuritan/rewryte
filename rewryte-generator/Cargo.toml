@@ -15,7 +15,7 @@ keywords = ["database", "schema", "codegen", "cli"]
 workspace = ".."
 
 [features]
-default = [ "sqlite" ]
+default = [ ]
 postgres = [ ]
 serde = [ ]
 sqlite = [ ]

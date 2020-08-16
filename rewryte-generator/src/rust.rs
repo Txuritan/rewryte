@@ -1,6 +1,6 @@
 use {
     crate::Error,
-    heck::SnakeCase,
+    heck::{KebabCase, SnakeCase},
     rewryte_parser::models::{Enum, Item, Schema, Table, Types},
     std::io,
 };
@@ -39,6 +39,20 @@ fn write_enum(decl: &Enum, writer: &mut impl io::Write) -> Result<(), Error> {
         .map(|v| quote::format_ident!("{}", v))
         .collect::<Vec<_>>();
 
+    let variants_rename = decl
+        .variants
+        .iter()
+        .map(|v| {
+            if cfg!(feature = "serde") {
+                let kebab = v.to_kebab_case();
+
+                quote::quote! { #[serde(rename = #kebab)] }
+            } else {
+                quote::quote! {}
+            }
+        })
+        .collect::<Vec<_>>();
+
     writeln!(
         writer,
         "{}",
@@ -46,15 +60,16 @@ fn write_enum(decl: &Enum, writer: &mut impl io::Write) -> Result<(), Error> {
             #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
             #derive
             pub enum #ident {
-                #( #variants, )*
+                #(
+                    #variants_rename
+                    #variants,
+                )*
             }
         }
     )?;
 
     #[cfg(feature = "postgres")]
     {
-        use heck::KebabCase;
-
         let idents = std::iter::repeat(ident);
         let num_variants = decl.variants.len();
 
@@ -117,8 +132,6 @@ fn write_enum(decl: &Enum, writer: &mut impl io::Write) -> Result<(), Error> {
 
     #[cfg(feature = "sqlite")]
     {
-        use heck::KebabCase;
-
         let variants_kebab = decl
             .variants
             .iter()
