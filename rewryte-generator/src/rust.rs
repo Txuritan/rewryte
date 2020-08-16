@@ -84,7 +84,7 @@ fn write_enum(decl: &Enum, scope: &mut Scope) -> Result<(), Error> {
                 .new_fn("column_result")
                 .arg("value", "rusqlite::types::ValueRef")
                 .ret("rusqlite::types::FromSqlResult<Self>")
-                .line("value.as_str().and_then(|s| match s.as_str() {");
+                .line("value.as_str().and_then(|s| match s {");
 
             for (i, column) in decl.variants.iter().enumerate() {
                 from_sql_fun.line(format!(
