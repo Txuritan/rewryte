@@ -27,17 +27,20 @@ fn write_item(item: &Item, scope: &mut Scope) -> Result<(), Error> {
 }
 
 fn write_enum(decl: &Enum, scope: &mut Scope) -> Result<(), Error> {
-    let item = scope.new_enum(decl.name).vis("pub")
+    let item = scope
+        .new_enum(decl.name)
+        .vis("pub")
         .derive("Clone")
         .derive("Debug")
         .derive("Hash")
-        .derive("PartialEq").derive("Eq")
-        .derive("PartialOrd").derive("Ord");
+        .derive("PartialEq")
+        .derive("Eq")
+        .derive("PartialOrd")
+        .derive("Ord");
 
     #[cfg(feature = "serde")]
     {
-        item.derive("serde::Deserialize")
-            .derive("serde::Serialize");
+        item.derive("serde::Deserialize").derive("serde::Serialize");
     }
 
     for variant in &decl.variants {
@@ -48,63 +51,72 @@ fn write_enum(decl: &Enum, scope: &mut Scope) -> Result<(), Error> {
     {
         use heck::KebabCase;
 
-        let to_sql = scope
-            .new_impl(decl.name)
-            .impl_trait("rusqlite::types::ToSql");
+        {
+            let to_sql = scope
+                .new_impl(decl.name)
+                .impl_trait("rusqlite::types::ToSql");
 
-        let to_sql_fun = to_sql
-            .new_fn("to_sql")
-            .arg_ref_self()
-            .ret("rusqlite::Result<rusqlite::types::ToSqlOutput>")
-            .line("match self {");
+            let to_sql_fun = to_sql
+                .new_fn("to_sql")
+                .arg_ref_self()
+                .ret("rusqlite::Result<rusqlite::types::ToSqlOutput>")
+                .line("match self {");
 
-        let from_sql = scope
-            .new_impl(decl.name)
-            .impl_trait("rusqlite::types::FromSql");
+            for (i, column) in decl.variants.iter().enumerate() {
+                to_sql_fun.line(format!(
+                    r#"{}::{} =>  Ok("{}".into()),"#,
+                    decl.name,
+                    column,
+                    column.to_kebab_case(),
+                ));
+            }
 
-        let from_sql_fun = from_sql
-            .new_fn("column_result")
-            .arg("value", "rusqlite::types::ValueRef")
-            .ret("rusqlite::types::FromSqlResult<Self>")
-            .line("value.as_str().and_then(|s| match s.as_str() {");
-
-        for (i, column) in decl.variants.iter().enumerate() {
-            to_sql_fun.line(format!(
-                r#"{}::{} =>  Ok("{}".into()),"#,
-                decl.name,
-                column,
-                column.to_kebab_case(),
-            ));
-
-            from_sql_fun.line(format!(
-                r#""{}"" => Ok({}::{}),"#,
-                column.to_kebab_case(),
-                decl.name,
-                column,
-            ));
+            to_sql_fun.line("}");
         }
 
-        to_sql_fun.line("}");
+        {
+            let from_sql = scope
+                .new_impl(decl.name)
+                .impl_trait("rusqlite::types::FromSql");
 
-        from_sql_fun.line("_ => Err(rusqlite::types::FromSqlError::InvalidType),");
-        from_sql_fun.line("})");
+            let from_sql_fun = from_sql
+                .new_fn("column_result")
+                .arg("value", "rusqlite::types::ValueRef")
+                .ret("rusqlite::types::FromSqlResult<Self>")
+                .line("value.as_str().and_then(|s| match s.as_str() {");
+
+            for (i, column) in decl.variants.iter().enumerate() {
+                from_sql_fun.line(format!(
+                    r#""{}"" => Ok({}::{}),"#,
+                    column.to_kebab_case(),
+                    decl.name,
+                    column,
+                ));
+            }
+
+            from_sql_fun.line("_ => Err(rusqlite::types::FromSqlError::InvalidType),");
+            from_sql_fun.line("})");
+        }
     }
 
     Ok(())
 }
 
 fn write_table(decl: &Table, scope: &mut Scope) -> Result<(), Error> {
-    let item = scope.new_struct(decl.name).vis("pub")
+    let item = scope
+        .new_struct(decl.name)
+        .vis("pub")
         .derive("Clone")
         .derive("Debug")
         .derive("Hash")
-        .derive("PartialEq").derive("Eq")
-        .derive("PartialOrd").derive("Ord");
+        .derive("PartialEq")
+        .derive("Eq")
+        .derive("PartialOrd")
+        .derive("Ord");
 
     #[cfg(feature = "serde")]
     {
-        item.derive("serde::Deserialize")
-            .derive("serde::Serialize");
+        item.derive("serde::Deserialize").derive("serde::Serialize");
     }
 
     let mut buff = String::new();

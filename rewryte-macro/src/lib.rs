@@ -33,7 +33,10 @@ pub fn schema(input: TokenStream) -> TokenStream {
     let contents = match fs::read_to_string(&input.path) {
         Ok(file) => file,
         Err(err) if err.kind() == ErrorKind::NotFound => {
-            return error(input.lit_path, format!("File does not exist: {}", input.path.display()));
+            return error(
+                input.lit_path,
+                format!("File does not exist: {}", input.path.display()),
+            );
         }
         Err(err) => {
             return error(input.lit_path, err);
@@ -149,7 +152,10 @@ pub fn models(input: TokenStream) -> TokenStream {
     let contents = match fs::read_to_string(&input.path) {
         Ok(file) => file,
         Err(err) if err.kind() == ErrorKind::NotFound => {
-            return error(input.lit_path, format!("File does not exist: {}", input.path.display()));
+            return error(
+                input.lit_path,
+                format!("File does not exist: {}", input.path.display()),
+            );
         }
         Err(err) => {
             return error(input.lit_path, err);
