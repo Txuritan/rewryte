@@ -222,7 +222,7 @@ fn write_table(decl: &Table, writer: &mut impl io::Write) -> Result<(), Error> {
         writer,
         "{}",
         quote::quote! {
-            #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+            #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
             #derive
             pub struct #ident {
                 #(
