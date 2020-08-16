@@ -34,12 +34,6 @@ fn write_enum(decl: &Enum, scope: &mut Scope) -> Result<(), Error> {
         .derive("PartialEq").derive("Eq")
         .derive("PartialOrd").derive("Ord");
 
-    #[cfg(feature = "postgres")]
-    {
-        item.derive("postgres_types::ToSql")
-            .derive("postgres_types::FromSql");
-    }
-
     #[cfg(feature = "serde")]
     {
         item.derive("serde::Deserialize")
