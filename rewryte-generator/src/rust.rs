@@ -1,8 +1,8 @@
 use {
     crate::Error,
+    heck::SnakeCase,
     rewryte_parser::models::{Enum, Item, Schema, Table, Types},
     std::io,
-    heck::SnakeCase,
 };
 
 pub fn write_schema(schema: &Schema, writer: &mut impl io::Write) -> Result<(), Error> {
@@ -209,7 +209,7 @@ fn write_table(decl: &Table, writer: &mut impl io::Write) -> Result<(), Error> {
                         let raw_ident = quote::format_ident!("{}", raw);
 
                         quote::quote! { #raw_ident }
-                    },
+                    }
                 },
             )
         })
@@ -244,7 +244,13 @@ fn write_table(decl: &Table, writer: &mut impl io::Write) -> Result<(), Error> {
         let ids = (0..(decl.columns.len())).map(|n| n).collect::<Vec<usize>>();
         let messages = ids
             .iter()
-            .map(|n| format!("Failed to get data for row index {}", n))
+            .map(|n| {
+                format!(
+                    "Failed to get data for row index {}: `{}`",
+                    n,
+                    decl.columns[*n].name.to_snake_case()
+                )
+            })
             .collect::<Vec<_>>();
 
         writeln!(
