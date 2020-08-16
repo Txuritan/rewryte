@@ -266,7 +266,7 @@ fn write_table(decl: &Table, writer: &mut impl io::Write) -> Result<(), Error> {
 
                         std::result::Result::Ok(Self {
                             #(
-                                #field_names: row.get(#ids).context(#messages),
+                                #field_names: row.get(#ids).context(#messages)?,
                             )*
                         })
                     }
