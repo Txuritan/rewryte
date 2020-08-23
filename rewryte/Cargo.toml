@@ -25,4 +25,4 @@ rewryte-macro = { path = "../rewryte-macro", version = "0.1" }
 rewryte-parser = { path = "../rewryte-parser", version = "0.1" }
 
 anyhow = "1.0"
-rusqlite = { version = "0.23", default-features = false, optional = true }
+rusqlite = { version = "0.24", default-features = false, optional = true }
