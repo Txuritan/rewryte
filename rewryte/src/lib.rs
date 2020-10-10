@@ -1,16 +1,197 @@
 pub use rewryte_macro::{models, schema};
 
 pub mod prelude {
+    #[cfg(feature = "postgres")]
+    pub use crate::postgres::ClientExt as _;
+
     #[cfg(feature = "sqlite")]
     pub use crate::sqlite::{SqliteExt as _, SqliteStmtExt as _};
 }
 
-#[cfg(feature = "sqlite")]
-pub mod sqlite {
+#[cfg(feature = "postgres")]
+pub mod postgres {
+    pub use tokio_postgres::*;
+
     use {
-        rusqlite::{Row, Rows, ToSql},
-        std::marker::PhantomData,
+        futures::{Stream, TryStreamExt},
+        std::{
+            marker::{PhantomData, PhantomPinned},
+            pin::Pin,
+            task::{Context, Poll},
+        },
+        tokio_postgres::types::ToSql,
     };
+
+    #[macro_export]
+    macro_rules! postgres_params {
+        () => {
+            &[] as &[&(dyn $crate::postgres::types::ToSql + Sync)]
+        };
+        ($( $param:expr ),+ $(,)?) => {
+            &[$(&$param as &(dyn $crate::postgres::types::ToSql + Sync)),+] as &[&(dyn $crate::postgres::types::ToSql + Sync)]
+        };
+    }
+
+    fn slice_iter<'a>(
+        s: &'a [&'a (dyn ToSql + Sync)],
+    ) -> impl ExactSizeIterator<Item = &'a dyn ToSql> + 'a {
+        s.iter().map(|s| *s as _)
+    }
+
+    pub trait FromRow {
+        fn from_row(row: Row) -> anyhow::Result<Self>
+        where
+            Self: Sized;
+    }
+
+    #[async_trait::async_trait]
+    pub trait ClientExt {
+        async fn type_query<T, S>(
+            &self,
+            statement: &S,
+            params: &[&(dyn ToSql + Sync)],
+        ) -> anyhow::Result<Vec<T>>
+        where
+            S: ?Sized + ToStatement + Send + Sync,
+            T: FromRow + Send + Sync;
+
+        async fn type_query_one<T, S>(
+            &self,
+            statement: &S,
+            params: &[&(dyn ToSql + Sync)],
+        ) -> anyhow::Result<Option<T>>
+        where
+            S: ?Sized + ToStatement + Send + Sync,
+            T: FromRow + Send + Sync;
+
+        async fn type_query_raw<T, S>(
+            &self,
+            statement: &S,
+            params: &[&(dyn ToSql + Sync)],
+        ) -> anyhow::Result<TypedRowStreamExt<T>>
+        where
+            S: ?Sized + ToStatement + Send + Sync,
+            T: FromRow;
+    }
+
+    #[async_trait::async_trait]
+    impl ClientExt for Client {
+        async fn type_query<T, S>(
+            &self,
+            statement: &S,
+            params: &[&(dyn ToSql + Sync)],
+        ) -> anyhow::Result<Vec<T>>
+        where
+            S: ?Sized + ToStatement + Send + Sync,
+            T: FromRow + Send + Sync,
+        {
+            self.type_query_raw::<T, S>(statement, params).await?
+                .try_collect()
+                .await
+        }
+
+        async fn type_query_one<T, S>(
+            &self,
+            statement: &S,
+            params: &[&(dyn ToSql + Sync)],
+        ) -> anyhow::Result<Option<T>>
+        where
+            S: ?Sized + ToStatement + Send + Sync,
+            T: FromRow + Send + Sync,
+        {
+            let stream = self.type_query_raw::<T, S>(statement, params).await?;
+
+            futures::pin_mut!(stream);
+
+            let row = match stream.try_next().await? {
+                Some(row) => row,
+                None => return Ok(None),
+            };
+
+            if stream.try_next().await?.is_some() {
+                anyhow::bail!("query returned an unexpected number of rows");
+            }
+
+            Ok(Some(row))
+        }
+
+        async fn type_query_raw<T, S>(
+            &self,
+            statement: &S,
+            params: &[&(dyn ToSql + Sync)],
+        ) -> anyhow::Result<TypedRowStreamExt<T>>
+        where
+            S: ?Sized + ToStatement + Send + Sync,
+            T: FromRow,
+        {
+            let stream = self.query_raw(statement, slice_iter(params)).await?;
+
+            Ok(TypedRowStreamExt {
+                stream,
+                _p: PhantomPinned,
+                _t: PhantomData,
+            })
+        }
+    }
+
+    pin_project_lite::pin_project! {
+        /// A stream of the mapped resulting table rows.
+        pub struct TypedRowStreamExt<T>
+        where
+            T: FromRow,
+        {
+            #[pin]
+            stream: RowStream,
+            #[pin]
+            _p: PhantomPinned,
+            _t: PhantomData<T>,
+        }
+    }
+
+    impl<T> Stream for TypedRowStreamExt<T>
+    where
+        T: FromRow,
+    {
+        type Item = Result<T, anyhow::Error>;
+
+        fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            let this = self.project();
+
+            let polled: Option<Row> = futures::ready!(this.stream.poll_next(cx)?);
+
+            match polled {
+                Some(row) => Poll::Ready(Some(T::from_row(row))),
+                None => Poll::Ready(None),
+            }
+        }
+    }
+}
+
+#[cfg(all(feature = "sqlite"))]
+pub mod sqlite {
+    pub use rusqlite::*;
+
+    use std::marker::PhantomData;
+
+    #[macro_export]
+    macro_rules! sqlite_named_params {
+        () => {
+            &[]
+        };
+        ($($param_name:literal: $param_val:expr),+ $(,)?) => {
+            &[$(($param_name, &$param_val as &dyn $crate::sqlite::ToSql)),+]
+        };
+    }
+
+    #[macro_export]
+    macro_rules! sqlite_params {
+        () => {
+            &[]
+        };
+        ($($param:expr),+ $(,)?) => {
+            &[$(&$param as &dyn $crate::sqlite::ToSql),+] as &[&dyn $crate::sqlite::ToSql]
+        };
+    }
 
     pub trait FromRow {
         fn from_row(row: &Row<'_>) -> anyhow::Result<Self>
@@ -18,12 +199,16 @@ pub mod sqlite {
             Self: Sized;
     }
 
-    pub struct MappedRows<'stmt, F> {
+    /// An iterator over the mapped resulting rows of a query.
+    ///
+    /// `F` is used to transform the _streaming_ iterator into a _standard_ iterator.
+    #[must_use = "iterators are lazy and do nothing unless consumed"]
+    pub struct MappedRowsExt<'stmt, F> {
         rows: Rows<'stmt>,
         map: F,
     }
 
-    impl<'stmt, T, F> MappedRows<'stmt, F>
+    impl<'stmt, T, F> MappedRowsExt<'stmt, F>
     where
         F: FnMut(&Row<'_>) -> anyhow::Result<T>,
     {
@@ -32,7 +217,7 @@ pub mod sqlite {
         }
     }
 
-    impl<T, F> Iterator for MappedRows<'_, F>
+    impl<T, F> Iterator for MappedRowsExt<'_, F>
     where
         F: FnMut(&Row<'_>) -> anyhow::Result<T>,
     {
@@ -52,12 +237,12 @@ pub mod sqlite {
                 })
         }
     }
-    pub struct TypeMappedRows<'stmt, T> {
+    pub struct TypeMappedRowsExt<'stmt, T> {
         rows: Rows<'stmt>,
         typ: PhantomData<T>,
     }
 
-    impl<'stmt, T> TypeMappedRows<'stmt, T>
+    impl<'stmt, T> TypeMappedRowsExt<'stmt, T>
     where
         T: FromRow,
     {
@@ -69,7 +254,7 @@ pub mod sqlite {
         }
     }
 
-    impl<T> Iterator for TypeMappedRows<'_, T>
+    impl<T> Iterator for TypeMappedRowsExt<'_, T>
     where
         T: FromRow,
     {
@@ -160,7 +345,7 @@ pub mod sqlite {
             &mut self,
             params: P,
             f: F,
-        ) -> anyhow::Result<Option<MappedRows<'_, F>>>
+        ) -> anyhow::Result<Option<MappedRowsExt<'_, F>>>
         where
             P: IntoIterator,
             P::Item: ToSql,
@@ -169,7 +354,7 @@ pub mod sqlite {
         fn type_query_map_anyhow<T, P>(
             &mut self,
             params: P,
-        ) -> anyhow::Result<Option<TypeMappedRows<'_, T>>>
+        ) -> anyhow::Result<Option<TypeMappedRowsExt<'_, T>>>
         where
             P: IntoIterator,
             P::Item: ToSql,
@@ -225,7 +410,7 @@ pub mod sqlite {
             &mut self,
             params: P,
             f: F,
-        ) -> anyhow::Result<Option<MappedRows<'_, F>>>
+        ) -> anyhow::Result<Option<MappedRowsExt<'_, F>>>
         where
             P: IntoIterator,
             P::Item: ToSql,
@@ -239,13 +424,13 @@ pub mod sqlite {
                 },
             };
 
-            Ok(Some(MappedRows::new(rows, f)))
+            Ok(Some(MappedRowsExt::new(rows, f)))
         }
 
         fn type_query_map_anyhow<T, P>(
             &mut self,
             params: P,
-        ) -> anyhow::Result<Option<TypeMappedRows<'_, T>>>
+        ) -> anyhow::Result<Option<TypeMappedRowsExt<'_, T>>>
         where
             P: IntoIterator,
             P::Item: ToSql,
@@ -259,7 +444,7 @@ pub mod sqlite {
                 },
             };
 
-            Ok(Some(TypeMappedRows::new(rows)))
+            Ok(Some(TypeMappedRowsExt::new(rows)))
         }
     }
 }

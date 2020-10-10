@@ -15,8 +15,11 @@ keywords = ["database", "schema", "codegen"]
 workspace = ".."
 
 [features]
-postgres = [ "rewryte-generator/postgres" ]
+default = [ "serde", "postgres", "rusqlite" ]
+
 serde = [ "rewryte-generator/serde" ]
+
+postgres = [ "tokio-postgres", "async-trait", "futures", "pin-project-lite", "rewryte-generator/postgres" ]
 sqlite = [ "rusqlite", "rewryte-generator/sqlite" ]
 
 [dependencies]
@@ -25,4 +28,10 @@ rewryte-macro = { path = "../rewryte-macro", version = "0.1" }
 rewryte-parser = { path = "../rewryte-parser", version = "0.1" }
 
 anyhow = "1.0"
+
+async-trait = { version = "0.1", optional = true }
+futures = { version = "0.3", optional = true }
+pin-project-lite = { version = "0.1", optional = true }
+tokio-postgres = { version = "0.5", default-features = false, optional = true }
+
 rusqlite = { version = "0.24", default-features = false, optional = true }
