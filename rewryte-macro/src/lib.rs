@@ -15,6 +15,8 @@ use {
     },
     syn::{
         parse::{Parse, ParseStream},
+        punctuated::Punctuated,
+        token::Comma,
         LitStr, Result, Token,
     },
 };
@@ -25,7 +27,7 @@ fn error(path: LitStr, msg: impl std::fmt::Display) -> TokenStream {
 
 #[proc_macro]
 pub fn schema(input: TokenStream) -> TokenStream {
-    let input = match syn::parse::<RewryteFormatInput>(input) {
+    let input = match syn::parse::<FormatInput>(input) {
         Ok(syntax_tree) => syntax_tree,
         Err(err) => return TokenStream::from(err.to_compile_error()),
     };
@@ -103,13 +105,13 @@ pub fn schema(input: TokenStream) -> TokenStream {
     }
 }
 
-struct RewryteFormatInput {
+struct FormatInput {
     format: FormatType,
     lit_path: LitStr,
     path: PathBuf,
 }
 
-impl Parse for RewryteFormatInput {
+impl Parse for FormatInput {
     fn parse(input: ParseStream) -> Result<Self> {
         let lit_format = <LitStr as Parse>::parse(input)?;
 
@@ -134,7 +136,7 @@ impl Parse for RewryteFormatInput {
 
         let path = PathBuf::from(crate_root).join(lit_path.value());
 
-        Ok(RewryteFormatInput {
+        Ok(FormatInput {
             format,
             lit_path,
             path,
@@ -144,7 +146,7 @@ impl Parse for RewryteFormatInput {
 
 #[proc_macro]
 pub fn models(input: TokenStream) -> TokenStream {
-    let input = match syn::parse::<RewryteSchemaInput>(input) {
+    let input = match syn::parse::<ModelInput>(input) {
         Ok(syntax_tree) => syntax_tree,
         Err(err) => return TokenStream::from(err.to_compile_error()),
     };
@@ -174,7 +176,21 @@ pub fn models(input: TokenStream) -> TokenStream {
         Ok(schema) => {
             let mut writer = BufWriter::new(Vec::new());
 
-            if let Err(err) = rewryte_generator::rust::write_schema(&schema, &mut writer) {
+            let mut options = rewryte_generator::rust::Options::default();
+
+            if let Some(extra) = input.extra {
+                let mut mapped = extra.iter().map(LitStr::value);
+
+                if mapped.by_ref().any(|value| &*value == "juniper") {
+                    options.juniper = true;
+                }
+
+                if mapped.by_ref().any(|value| &*value == "serde") {
+                    options.serde = true;
+                }
+            }
+
+            if let Err(err) = rewryte_generator::rust::write_schema(&schema, &mut writer, options) {
                 return error(input.lit_path, err);
             }
 
@@ -220,12 +236,13 @@ pub fn models(input: TokenStream) -> TokenStream {
     }
 }
 
-struct RewryteSchemaInput {
+struct ModelInput {
     lit_path: LitStr,
     path: PathBuf,
+    extra: Option<Vec<LitStr>>,
 }
 
-impl Parse for RewryteSchemaInput {
+impl Parse for ModelInput {
     fn parse(input: ParseStream) -> Result<Self> {
         let lit_path = <LitStr as Parse>::parse(input)?;
 
@@ -233,6 +250,24 @@ impl Parse for RewryteSchemaInput {
 
         let path = PathBuf::from(crate_root).join(lit_path.value());
 
-        Ok(RewryteSchemaInput { lit_path, path })
+        let extra = if input.peek(syn::token::Bracket) {
+            let parsed = Punctuated::<LitStr, Comma>::parse_terminated(input)?;
+
+            let mut items = Vec::with_capacity(parsed.len());
+
+            for item in parsed {
+                items.push(item);
+            }
+
+            Some(items)
+        } else {
+            None
+        };
+
+        Ok(ModelInput {
+            lit_path,
+            path,
+            extra,
+        })
     }
 }

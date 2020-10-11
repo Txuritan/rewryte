@@ -15,9 +15,7 @@ keywords = ["database", "schema", "codegen"]
 workspace = ".."
 
 [features]
-default = [ "serde", "postgres", "rusqlite" ]
-
-serde = [ "rewryte-generator/serde" ]
+default = [ "postgres", "rusqlite" ]
 
 postgres = [ "tokio-postgres", "async-trait", "futures", "pin-project-lite", "rewryte-generator/postgres" ]
 sqlite = [ "rusqlite", "rewryte-generator/sqlite" ]

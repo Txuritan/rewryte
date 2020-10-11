@@ -85,7 +85,8 @@ pub mod postgres {
             S: ?Sized + ToStatement + Send + Sync,
             T: FromRow + Send + Sync,
         {
-            self.type_query_raw::<T, S>(statement, params).await?
+            self.type_query_raw::<T, S>(statement, params)
+                .await?
                 .try_collect()
                 .await
         }

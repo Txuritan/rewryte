@@ -5,27 +5,45 @@ use {
     std::io,
 };
 
-pub fn write_schema(schema: &Schema, writer: &mut impl io::Write) -> Result<(), Error> {
+#[derive(Default, Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Options {
+    pub juniper: bool,
+    pub serde: bool,
+}
+
+pub fn write_schema(
+    schema: &Schema,
+    writer: &mut impl io::Write,
+    options: Options,
+) -> Result<(), Error> {
     for item in &schema.items {
-        write_item(item, writer)?;
+        write_item(item, writer, options)?;
     }
 
     Ok(())
 }
 
-pub fn write_item(item: &Item, writer: &mut impl io::Write) -> Result<(), Error> {
+pub fn write_item(item: &Item, writer: &mut impl io::Write, options: Options) -> Result<(), Error> {
     match &item {
-        Item::Enum(decl) => write_enum(decl, writer)?,
-        Item::Table(decl) => write_table(decl, writer)?,
+        Item::Enum(decl) => write_enum(decl, writer, options)?,
+        Item::Table(decl) => write_table(decl, writer, options)?,
     }
 
     Ok(())
 }
 
-pub fn write_enum(decl: &Enum, writer: &mut impl io::Write) -> Result<(), Error> {
+pub fn write_enum(decl: &Enum, writer: &mut impl io::Write, options: Options) -> Result<(), Error> {
     let ident = quote::format_ident!("{}", decl.name);
 
-    let derive = if cfg!(feature = "serde") {
+    let juniper_derive = if options.juniper {
+        quote::quote! {
+            #[derive(juniper::GraphQLEnum)]
+        }
+    } else {
+        quote::quote! {}
+    };
+
+    let serde_derive = if options.serde {
         quote::quote! {
             #[derive(serde::Deserialize, serde::Serialize)]
         }
@@ -43,7 +61,7 @@ pub fn write_enum(decl: &Enum, writer: &mut impl io::Write) -> Result<(), Error>
         .variants
         .iter()
         .map(|v| {
-            if cfg!(feature = "serde") {
+            if options.serde {
                 let kebab = v.to_kebab_case();
 
                 quote::quote! { #[serde(rename = #kebab)] }
@@ -58,7 +76,8 @@ pub fn write_enum(decl: &Enum, writer: &mut impl io::Write) -> Result<(), Error>
         "{}",
         quote::quote! {
             #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-            #derive
+            #juniper_derive
+            #serde_derive
             pub enum #ident {
                 #(
                     #variants_rename
@@ -68,127 +87,137 @@ pub fn write_enum(decl: &Enum, writer: &mut impl io::Write) -> Result<(), Error>
         }
     )?;
 
-    #[cfg(feature = "postgres")]
+    #[cfg(any(feature = "postgres", feature = "sqlite"))]
     {
-        let name = decl.name;
-        let idents = std::iter::repeat(ident.clone());
-        let num_variants = decl.variants.len();
-
-        let variant_names = &decl.variants;
         let variants_kebab = decl
             .variants
             .iter()
             .map(|s| s.to_kebab_case())
             .collect::<Vec<String>>();
 
+        #[cfg(feature = "postgres")]
         {
-            writeln!(
-                writer,
-                "{}",
-                quote::quote! {
-                    impl<'r> ::postgres_types::FromSql<'r> for #ident {
-                        fn from_sql(_type: &::postgres_types::Type, buf: &'r [u8]) -> ::std::result::Result<
-                            #ident,
-                            ::std::boxed::Box<dyn ::std::error::Error + ::std::marker::Sync + ::std::marker::Send>
-                        > {
-                            match ::std::str::from_utf8(buf)? {
-                                #(
-                                    #variants_kebab => ::std::result::Result::Ok(#idents::#variants),
-                                )*
-                                s => {
-                                    ::std::result::Result::Err(
-                                        ::std::convert::Into::into(format!("invalid variant `{}`", s))
-                                    )
-                                }
-                            }
-                        }
+            let name = decl.name;
+            let idents = std::iter::repeat(ident.clone());
+            let num_variants = decl.variants.len();
 
-                        fn accepts(type_: &::postgres_types::Type) -> bool {
-                            if type_.name() != #name {
-                                return false;
-                            }
+            let variant_names = &decl.variants;
 
-                            match *type_.kind() {
-                                ::postgres_types::Kind::Enum(ref variants) => {
-                                    if variants.len() != #num_variants {
-                                        return false;
+            {
+                writeln!(
+                    writer,
+                    "{}",
+                    quote::quote! {
+                        impl<'r> ::rewryte::postgres::types::FromSql<'r> for #ident {
+                            fn from_sql(_type: &::rewryte::postgres::types::Type, buf: &'r [u8]) -> ::std::result::Result<
+                                #ident,
+                                ::std::boxed::Box<dyn ::std::error::Error + ::std::marker::Sync + ::std::marker::Send>
+                            > {
+                                match ::std::str::from_utf8(buf)? {
+                                    #(
+                                        #variants_kebab => ::std::result::Result::Ok(#idents::#variants),
+                                    )*
+                                    s => {
+                                        ::std::result::Result::Err(
+                                            ::std::convert::Into::into(format!("invalid variant `{}`", s))
+                                        )
                                     }
-
-                                    variants.iter().all(|v| {
-                                        match &**v {
-                                            #(
-                                                #variant_names => true,
-                                            )*
-                                            _ => false,
-                                        }
-                                    })
                                 }
-                                _ => false,
+                            }
+
+                            fn accepts(type_: &::rewryte::postgres::types::Type) -> bool {
+                                if type_.name() != #name {
+                                    return false;
+                                }
+
+                                match *type_.kind() {
+                                    ::rewryte::postgres::types::Kind::Enum(ref variants) => {
+                                        if variants.len() != #num_variants {
+                                            return false;
+                                        }
+
+                                        variants.iter().all(|v| {
+                                            match &**v {
+                                                #(
+                                                    #variant_names => true,
+                                                )*
+                                                _ => false,
+                                            }
+                                        })
+                                    }
+                                    _ => false,
+                                }
                             }
                         }
                     }
-                }
-            )?;
+                )?;
+            }
         }
-    }
 
-    #[cfg(feature = "sqlite")]
-    {
-        let variants_kebab = decl
-            .variants
-            .iter()
-            .map(|s| s.to_kebab_case())
-            .collect::<Vec<String>>();
-
+        #[cfg(feature = "sqlite")]
         {
-            let idents = std::iter::repeat(ident.clone());
+            {
+                let idents = std::iter::repeat(ident.clone());
 
-            writeln!(
-                writer,
-                "{}",
-                quote::quote! {
-                    impl ::rewryte::sqlite::types::ToSql for #ident {
-                        fn to_sql(&self) -> ::rewryte::sqlite::Result<::rewryte::sqlite::types::ToSqlOutput> {
-                            match self {
-                                #(
-                                    #idents::#variants => ::std::result::Result::Ok(#variants_kebab.into()),
-                                )*
+                writeln!(
+                    writer,
+                    "{}",
+                    quote::quote! {
+                        impl ::rewryte::sqlite::types::ToSql for #ident {
+                            fn to_sql(&self) -> ::rewryte::sqlite::Result<::rewryte::sqlite::types::ToSqlOutput> {
+                                match self {
+                                    #(
+                                        #idents::#variants => ::std::result::Result::Ok(#variants_kebab.into()),
+                                    )*
+                                }
                             }
                         }
                     }
-                }
-            )?;
-        }
+                )?;
+            }
 
-        {
-            let idents = std::iter::repeat(ident.clone());
+            {
+                let idents = std::iter::repeat(ident.clone());
 
-            writeln!(
-                writer,
-                "{}",
-                quote::quote! {
-                    impl ::rewryte::sqlite::types::FromSql for #ident {
-                        fn column_result(value: ::rewryte::sqlite::types::ValueRef) -> ::rewryte::sqlite::types::FromSqlResult<Self> {
-                            value.as_str().and_then(|s| match s {
-                                #(
-                                    #variants_kebab => ::std::result::Result::Ok(#idents::#variants),
-                                )*
-                                _ => ::std::result::Result::Err(::rewryte::sqlite::types::FromSqlError::InvalidType),
-                            })
+                writeln!(
+                    writer,
+                    "{}",
+                    quote::quote! {
+                        impl ::rewryte::sqlite::types::FromSql for #ident {
+                            fn column_result(value: ::rewryte::sqlite::types::ValueRef) -> ::rewryte::sqlite::types::FromSqlResult<Self> {
+                                value.as_str().and_then(|s| match s {
+                                    #(
+                                        #variants_kebab => ::std::result::Result::Ok(#idents::#variants),
+                                    )*
+                                    _ => ::std::result::Result::Err(::rewryte::sqlite::types::FromSqlError::InvalidType),
+                                })
+                            }
                         }
                     }
-                }
-            )?;
+                )?;
+            }
         }
     }
 
     Ok(())
 }
 
-pub fn write_table(decl: &Table, writer: &mut impl io::Write) -> Result<(), Error> {
+pub fn write_table(
+    decl: &Table,
+    writer: &mut impl io::Write,
+    options: Options,
+) -> Result<(), Error> {
     let ident = quote::format_ident!("{}", decl.name);
 
-    let derive = if cfg!(feature = "serde") {
+    let juniper_derive = if options.juniper {
+        quote::quote! {
+            #[derive(juniper::GraphQLObject)]
+        }
+    } else {
+        quote::quote! {}
+    };
+
+    let serde_derive = if options.serde {
         quote::quote! {
             #[derive(serde::Deserialize, serde::Serialize)]
         }
@@ -242,7 +271,8 @@ pub fn write_table(decl: &Table, writer: &mut impl io::Write) -> Result<(), Erro
         "{}",
         quote::quote! {
             #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-            #derive
+            #juniper_derive
+            #serde_derive
             pub struct #ident {
                 #(
                     pub #field_names: #field_types,

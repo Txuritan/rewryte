@@ -16,8 +16,8 @@ workspace = ".."
 
 [features]
 default = [ ]
+
 postgres = [ ]
-serde = [ ]
 sqlite = [ ]
 
 [dependencies]
