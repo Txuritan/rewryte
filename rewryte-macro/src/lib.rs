@@ -254,7 +254,11 @@ impl Parse for ModelInput {
             let _comma = <Comma as Parse>::parse(input)?;
 
             if input.peek(syn::token::Bracket) {
-                let parsed = Punctuated::<LitStr, Comma>::parse_terminated(input)?;
+                let content;
+
+                let _bracket = syn::bracketed!(content in input);
+
+                let parsed = Punctuated::<LitStr, Comma>::parse_terminated(&content)?;
 
                 let mut items = Vec::with_capacity(parsed.len());
 
