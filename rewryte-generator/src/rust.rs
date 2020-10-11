@@ -76,7 +76,15 @@ pub fn write_enum(decl: &Enum, writer: &mut impl io::Write, options: Options) ->
             if options.serde {
                 let kebab = v.to_kebab_case();
 
-                quote::quote! { #[serde(rename = #kebab)] }
+                if cfg!(feature = "feature-gate-serde") {
+                    quote::quote! {
+                        #[cfg_attr(feature = "rewryte-serde", serde(rename = #kebab))]
+                    }
+                } else {
+                    quote::quote! {
+                        #[serde(rename = #kebab)]
+                    }
+                }
             } else {
                 quote::quote! {}
             }
@@ -222,16 +230,28 @@ pub fn write_table(
     let ident = quote::format_ident!("{}", decl.name);
 
     let juniper_derive = if options.juniper {
-        quote::quote! {
-            #[derive(juniper::GraphQLObject)]
+        if cfg!(feature = "feature-gate-juniper") {
+            quote::quote! {
+                #[cfg_attr(feature = "rewryte-juniper", derive(juniper::GraphQLEnum))]
+            }
+        } else {
+            quote::quote! {
+                #[derive(juniper::GraphQLEnum)]
+            }
         }
     } else {
         quote::quote! {}
     };
 
     let serde_derive = if options.serde {
-        quote::quote! {
-            #[derive(serde::Deserialize, serde::Serialize)]
+        if cfg!(feature = "feature-gate-serde") {
+            quote::quote! {
+                #[cfg_attr(feature = "rewryte-serde", derive(serde::Deserialize, serde::Serialize))]
+            }
+        } else {
+            quote::quote! {
+                #[derive(serde::Deserialize, serde::Serialize)]
+            }
         }
     } else {
         quote::quote! {}
