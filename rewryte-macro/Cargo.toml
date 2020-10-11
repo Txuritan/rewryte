@@ -1,6 +1,6 @@
 [package]
 name = "rewryte-macro"
-version = "0.1.0"
+version = "0.1.2"
 authors = ["Txuritan <txuritan@protonmail.com>"]
 edition = "2018"
 

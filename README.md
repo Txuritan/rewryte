@@ -84,8 +84,6 @@ rewryte::models!("./schema.dal", ["sqlite"]);
 
 `lib.rs`:
 ```rust
-use anyhow::Context;
-
 struct Settings {
     key: String,
     value: String,
@@ -98,6 +96,8 @@ impl rewryte::sqlite::FromRow for Settings {
     where
         Self: Sized,
     {
+        use anyhow::Context;
+
         Ok(Self {
             key: row.get(0).context("Failed to get data for row index 0")?,
             value: row.get(1).context("Failed to get data for row index 1")?,

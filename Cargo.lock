@@ -696,7 +696,7 @@ checksum = "41cc0f7e4d5d4544e8861606a285bb08d3e70712ccc7d2b84d7c0ccfaf4b05ce"
 
 [[package]]
 name = "rewryte"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -711,7 +711,7 @@ dependencies = [
 
 [[package]]
 name = "rewryte-cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "clap",
@@ -722,7 +722,7 @@ dependencies = [
 
 [[package]]
 name = "rewryte-generator"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -733,7 +733,7 @@ dependencies = [
 
 [[package]]
 name = "rewryte-macro"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "codespan-reporting",
  "quote",
@@ -744,7 +744,7 @@ dependencies = [
 
 [[package]]
 name = "rewryte-parser"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "codespan-reporting",
  "pest",

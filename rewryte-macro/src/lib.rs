@@ -250,16 +250,22 @@ impl Parse for ModelInput {
 
         let path = PathBuf::from(crate_root).join(lit_path.value());
 
-        let extra = if input.peek(syn::token::Bracket) {
-            let parsed = Punctuated::<LitStr, Comma>::parse_terminated(input)?;
+        let extra = if input.peek(syn::token::Comma) {
+            let _comma = <Comma as Parse>::parse(input)?;
 
-            let mut items = Vec::with_capacity(parsed.len());
+            if input.peek(syn::token::Bracket) {
+                let parsed = Punctuated::<LitStr, Comma>::parse_terminated(input)?;
 
-            for item in parsed {
-                items.push(item);
+                let mut items = Vec::with_capacity(parsed.len());
+
+                for item in parsed {
+                    items.push(item);
+                }
+
+                Some(items)
+            } else {
+                None
             }
-
-            Some(items)
         } else {
             None
         };
