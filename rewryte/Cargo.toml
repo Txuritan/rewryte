@@ -20,6 +20,9 @@ default = [ "postgres", "rusqlite" ]
 postgres = [ "tokio-postgres", "async-trait", "futures", "pin-project-lite", "rewryte-generator/postgres" ]
 sqlite = [ "rusqlite", "rewryte-generator/sqlite" ]
 
+feature-gate-juniper = [ "rewryte-generator/feature-gate-juniper" ]
+feature-gate-serde = [ "rewryte-generator/feature-gate-serde" ]
+
 [dependencies]
 rewryte-generator = { path = "../rewryte-generator", version = "0.1" }
 rewryte-macro = { path = "../rewryte-macro", version = "0.1" }

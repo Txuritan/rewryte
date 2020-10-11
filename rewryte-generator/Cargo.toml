@@ -20,6 +20,9 @@ default = [ ]
 postgres = [ ]
 sqlite = [ ]
 
+feature-gate-juniper = [ ]
+feature-gate-serde = [ ]
+
 [dependencies]
 rewryte-parser = { path = "../rewryte-parser", version = "0.1" }
 
