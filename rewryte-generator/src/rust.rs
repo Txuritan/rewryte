@@ -50,9 +50,9 @@ pub fn write_enum(decl: &Enum, writer: &mut impl io::Write, options: Options) ->
     };
 
     let serde_derive = if options.serde {
-        if cfg!(feature = "feature-gate-juniper") {
+        if cfg!(feature = "feature-gate-serde") {
             quote::quote! {
-                #[cfg_attr(feature = "rewryte-juniper", derive(serde::Deserialize, serde::Serialize))]
+                #[cfg_attr(feature = "rewryte-serde", derive(serde::Deserialize, serde::Serialize))]
             }
         } else {
             quote::quote! {
