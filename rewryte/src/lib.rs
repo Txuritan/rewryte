@@ -1,13 +1,5 @@
 pub use rewryte_macro::{models, schema};
 
-pub mod prelude {
-    #[cfg(feature = "postgres")]
-    pub use crate::postgres::ClientExt as _;
-
-    #[cfg(feature = "sqlite")]
-    pub use crate::sqlite::{SqliteExt as _, SqliteStmtExt as _};
-}
-
 #[cfg(feature = "postgres")]
 pub mod postgres {
     pub use tokio_postgres::*;
@@ -55,7 +47,25 @@ pub mod postgres {
             S: ?Sized + ToStatement + Send + Sync,
             T: FromRow + Send + Sync;
 
+        async fn type_query_opt<T, S>(
+            &self,
+            statement: &S,
+            params: &[&(dyn ToSql + Sync)],
+        ) -> anyhow::Result<Option<Vec<T>>>
+        where
+            S: ?Sized + ToStatement + Send + Sync,
+            T: FromRow + Send + Sync;
+
         async fn type_query_one<T, S>(
+            &self,
+            statement: &S,
+            params: &[&(dyn ToSql + Sync)],
+        ) -> anyhow::Result<T>
+        where
+            S: ?Sized + ToStatement + Send + Sync,
+            T: FromRow + Send + Sync;
+
+        async fn type_query_one_opt<T, S>(
             &self,
             statement: &S,
             params: &[&(dyn ToSql + Sync)],
@@ -91,7 +101,55 @@ pub mod postgres {
                 .await
         }
 
+        async fn type_query_opt<T, S>(
+            &self,
+            statement: &S,
+            params: &[&(dyn ToSql + Sync)],
+        ) -> anyhow::Result<Option<Vec<T>>>
+        where
+            S: ?Sized + ToStatement + Send + Sync,
+            T: FromRow + Send + Sync,
+        {
+            let stream = self.type_query_raw::<T, S>(statement, params).await?;
+
+            futures::pin_mut!(stream);
+
+            let mut buff = None;
+
+            while let Some(item) = stream.try_next().await? {
+                buff.get_or_insert_with(|| Vec::with_capacity(stream.size_hint().0))
+                    .push(item);
+            }
+
+            Ok(buff)
+        }
+
         async fn type_query_one<T, S>(
+            &self,
+            statement: &S,
+            params: &[&(dyn ToSql + Sync)],
+        ) -> anyhow::Result<T>
+        where
+            S: ?Sized + ToStatement + Send + Sync,
+            T: FromRow + Send + Sync,
+        {
+            let stream = self.type_query_raw::<T, S>(statement, params).await?;
+
+            futures::pin_mut!(stream);
+
+            let row = match stream.try_next().await? {
+                Some(row) => row,
+                None => anyhow::bail!("query returned an unexpected number of rows"),
+            };
+
+            if stream.try_next().await?.is_some() {
+                anyhow::bail!("query returned an unexpected number of rows");
+            }
+
+            Ok(row)
+        }
+
+        async fn type_query_one_opt<T, S>(
             &self,
             statement: &S,
             params: &[&(dyn ToSql + Sync)],
@@ -164,6 +222,10 @@ pub mod postgres {
                 Some(row) => Poll::Ready(Some(T::from_row(row))),
                 None => Poll::Ready(None),
             }
+        }
+
+        fn size_hint(&self) -> (usize, Option<usize>) {
+            self.stream.size_hint()
         }
     }
 }
@@ -274,8 +336,19 @@ pub mod sqlite {
         }
     }
 
-    pub trait SqliteExt {
-        fn query_row_anyhow<T, P, F>(
+    pub trait ConnectionExt {
+        fn query_one<T, P, F>(
+            &self,
+            sql: &str,
+            params: P,
+            f: F,
+        ) -> anyhow::Result<T>
+        where
+            P: IntoIterator,
+            P::Item: ToSql,
+            F: FnOnce(&Row<'_>) -> anyhow::Result<T>;
+
+        fn query_one_opt<T, P, F>(
             &self,
             sql: &str,
             params: P,
@@ -286,15 +359,21 @@ pub mod sqlite {
             P::Item: ToSql,
             F: FnOnce(&Row<'_>) -> anyhow::Result<T>;
 
-        fn type_query_row_anyhow<T, P>(&self, sql: &str, params: P) -> anyhow::Result<Option<T>>
+        fn type_query_one<T, P>(&self, sql: &str, params: P) -> anyhow::Result<T>
+        where
+            P: IntoIterator,
+            P::Item: ToSql,
+            T: FromRow;
+
+        fn type_query_one_opt<T, P>(&self, sql: &str, params: P) -> anyhow::Result<Option<T>>
         where
             P: IntoIterator,
             P::Item: ToSql,
             T: FromRow;
     }
 
-    impl SqliteExt for rusqlite::Connection {
-        fn query_row_anyhow<T, P, F>(&self, sql: &str, params: P, f: F) -> anyhow::Result<Option<T>>
+    impl ConnectionExt for rusqlite::Connection {
+        fn query_one<T, P, F>(&self, sql: &str, params: P, f: F) -> anyhow::Result<T>
         where
             P: IntoIterator,
             P::Item: ToSql,
@@ -302,8 +381,19 @@ pub mod sqlite {
         {
             let mut stmt = self.prepare(sql)?;
 
-            match stmt.query_row_anyhow(params, f) {
-                Ok(res) => Ok(res),
+            let row = stmt.query_one(params, f)?;
+
+            Ok(row)
+        }
+
+        fn query_one_opt<T, P, F>(&self, sql: &str, params: P, f: F) -> anyhow::Result<Option<T>>
+        where
+            P: IntoIterator,
+            P::Item: ToSql,
+            F: FnOnce(&Row<'_>) -> anyhow::Result<T>,
+        {
+            match self.query_one(sql, params, f) {
+                Ok(res) => Ok(Some(res)),
                 Err(err) => match err.downcast_ref::<rusqlite::Error>() {
                     Some(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
                     _ => Err(err),
@@ -311,7 +401,7 @@ pub mod sqlite {
             }
         }
 
-        fn type_query_row_anyhow<T, P>(&self, sql: &str, params: P) -> anyhow::Result<Option<T>>
+        fn type_query_one<T, P>(&self, sql: &str, params: P) -> anyhow::Result<T>
         where
             P: IntoIterator,
             P::Item: ToSql,
@@ -319,8 +409,19 @@ pub mod sqlite {
         {
             let mut stmt = self.prepare(sql)?;
 
-            match stmt.type_query_row_anyhow(params) {
-                Ok(res) => Ok(res),
+            let row = stmt.type_query_one(params)?;
+
+            Ok(row)
+        }
+
+        fn type_query_one_opt<T, P>(&self, sql: &str, params: P) -> anyhow::Result<Option<T>>
+        where
+            P: IntoIterator,
+            P::Item: ToSql,
+            T: FromRow,
+        {
+            match self.type_query_one(sql, params) {
+                Ok(res) => Ok(Some(res)),
                 Err(err) => match err.downcast_ref::<rusqlite::Error>() {
                     Some(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
                     _ => Err(err),
@@ -329,20 +430,18 @@ pub mod sqlite {
         }
     }
 
-    pub trait SqliteStmtExt {
-        fn query_row_anyhow<T, P, F>(&mut self, params: P, f: F) -> anyhow::Result<Option<T>>
+    pub trait StatementExt {
+        fn query<T, P, F>(
+            &mut self,
+            params: P,
+            f: F,
+        ) -> anyhow::Result<MappedRowsExt<'_, F>>
         where
             P: IntoIterator,
             P::Item: ToSql,
-            F: FnOnce(&Row<'_>) -> anyhow::Result<T>;
+            F: FnMut(&Row<'_>) -> anyhow::Result<T>;
 
-        fn type_query_row_anyhow<T, P>(&mut self, params: P) -> anyhow::Result<Option<T>>
-        where
-            P: IntoIterator,
-            P::Item: ToSql,
-            T: FromRow;
-
-        fn query_map_anyhow<T, P, F>(
+        fn query_opt<T, P, F>(
             &mut self,
             params: P,
             f: F,
@@ -352,7 +451,16 @@ pub mod sqlite {
             P::Item: ToSql,
             F: FnMut(&Row<'_>) -> anyhow::Result<T>;
 
-        fn type_query_map_anyhow<T, P>(
+        fn type_query<T, P>(
+            &mut self,
+            params: P,
+        ) -> anyhow::Result<TypeMappedRowsExt<'_, T>>
+        where
+            P: IntoIterator,
+            P::Item: ToSql,
+            T: FromRow;
+
+        fn type_query_opt<T, P>(
             &mut self,
             params: P,
         ) -> anyhow::Result<Option<TypeMappedRowsExt<'_, T>>>
@@ -360,10 +468,118 @@ pub mod sqlite {
             P: IntoIterator,
             P::Item: ToSql,
             T: FromRow;
+
+        fn query_one<T, P, F>(&mut self, params: P, f: F) -> anyhow::Result<T>
+        where
+            P: IntoIterator,
+            P::Item: ToSql,
+            F: FnOnce(&Row<'_>) -> anyhow::Result<T>;
+
+        fn type_query_one<T, P>(&mut self, params: P) -> anyhow::Result<T>
+        where
+            P: IntoIterator,
+            P::Item: ToSql,
+            T: FromRow;
+
+        fn query_one_opt<T, P, F>(&mut self, params: P, f: F) -> anyhow::Result<Option<T>>
+        where
+            P: IntoIterator,
+            P::Item: ToSql,
+            F: FnOnce(&Row<'_>) -> anyhow::Result<T>;
+
+        fn type_query_one_opt<T, P>(&mut self, params: P) -> anyhow::Result<Option<T>>
+        where
+            P: IntoIterator,
+            P::Item: ToSql,
+            T: FromRow;
     }
 
-    impl SqliteStmtExt for rusqlite::Statement<'_> {
-        fn query_row_anyhow<T, P, F>(&mut self, params: P, f: F) -> anyhow::Result<Option<T>>
+    impl StatementExt for rusqlite::Statement<'_> {
+        fn query<T, P, F>(
+            &mut self,
+            params: P,
+            f: F,
+        ) -> anyhow::Result<MappedRowsExt<'_, F>>
+        where
+            P: IntoIterator,
+            P::Item: ToSql,
+            F: FnMut(&Row<'_>) -> anyhow::Result<T>,
+        {
+            let rows = self.query(params)?;
+
+            Ok(MappedRowsExt::new(rows, f))
+        }
+
+        fn query_opt<T, P, F>(
+            &mut self,
+            params: P,
+            f: F,
+        ) -> anyhow::Result<Option<MappedRowsExt<'_, F>>>
+        where
+            P: IntoIterator,
+            P::Item: ToSql,
+            F: FnMut(&Row<'_>) -> anyhow::Result<T>,
+        {
+            let rows = match self.query(params).map_err(anyhow::Error::from) {
+                Ok(rows) => rows,
+                Err(err) => match err.downcast_ref::<rusqlite::Error>() {
+                    Some(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+                    _ => return Err(err),
+                },
+            };
+
+            Ok(Some(MappedRowsExt::new(rows, f)))
+        }
+
+        fn type_query<T, P>(
+            &mut self,
+            params: P,
+        ) -> anyhow::Result<TypeMappedRowsExt<'_, T>>
+        where
+            P: IntoIterator,
+            P::Item: ToSql,
+            T: FromRow,
+        {
+            let rows = self.query(params)?;
+
+            Ok(TypeMappedRowsExt::new(rows))
+        }
+
+        fn type_query_opt<T, P>(
+            &mut self,
+            params: P,
+        ) -> anyhow::Result<Option<TypeMappedRowsExt<'_, T>>>
+        where
+            P: IntoIterator,
+            P::Item: ToSql,
+            T: FromRow,
+        {
+            let rows = match self.query(params).map_err(anyhow::Error::from) {
+                Ok(rows) => rows,
+                Err(err) => match err.downcast_ref::<rusqlite::Error>() {
+                    Some(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+                    _ => return Err(err),
+                },
+            };
+
+            Ok(Some(TypeMappedRowsExt::new(rows)))
+        }
+
+        fn query_one<T, P, F>(&mut self, params: P, f: F) -> anyhow::Result<T>
+        where
+            P: IntoIterator,
+            P::Item: ToSql,
+            F: FnOnce(&Row<'_>) -> anyhow::Result<T>,
+        {
+            let mut rows = self.query(params)?;
+
+            match rows.next()? {
+                Some(row) => Ok(f(&row)?),
+                None => Err(rusqlite::Error::QueryReturnedNoRows.into()),
+            }
+        }
+
+        fn query_one_opt<T, P, F>(&mut self, params: P, f: F) -> anyhow::Result<Option<T>>
         where
             P: IntoIterator,
             P::Item: ToSql,
@@ -385,7 +601,21 @@ pub mod sqlite {
             Ok(res)
         }
 
-        fn type_query_row_anyhow<T, P>(&mut self, params: P) -> anyhow::Result<Option<T>>
+        fn type_query_one<T, P>(&mut self, params: P) -> anyhow::Result<T>
+        where
+            P: IntoIterator,
+            P::Item: ToSql,
+            T: FromRow,
+        {
+            let mut rows = self.query(params)?;
+
+            match rows.next()? {
+                Some(row) => Ok(T::from_row(&row)?),
+                None => Err(rusqlite::Error::QueryReturnedNoRows.into()),
+            }
+        }
+
+        fn type_query_one_opt<T, P>(&mut self, params: P) -> anyhow::Result<Option<T>>
         where
             P: IntoIterator,
             P::Item: ToSql,
@@ -405,47 +635,6 @@ pub mod sqlite {
             };
 
             Ok(res)
-        }
-
-        fn query_map_anyhow<T, P, F>(
-            &mut self,
-            params: P,
-            f: F,
-        ) -> anyhow::Result<Option<MappedRowsExt<'_, F>>>
-        where
-            P: IntoIterator,
-            P::Item: ToSql,
-            F: FnMut(&Row<'_>) -> anyhow::Result<T>,
-        {
-            let rows = match self.query(params).map_err(anyhow::Error::from) {
-                Ok(rows) => rows,
-                Err(err) => match err.downcast_ref::<rusqlite::Error>() {
-                    Some(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
-                    _ => return Err(err),
-                },
-            };
-
-            Ok(Some(MappedRowsExt::new(rows, f)))
-        }
-
-        fn type_query_map_anyhow<T, P>(
-            &mut self,
-            params: P,
-        ) -> anyhow::Result<Option<TypeMappedRowsExt<'_, T>>>
-        where
-            P: IntoIterator,
-            P::Item: ToSql,
-            T: FromRow,
-        {
-            let rows = match self.query(params).map_err(anyhow::Error::from) {
-                Ok(rows) => rows,
-                Err(err) => match err.downcast_ref::<rusqlite::Error>() {
-                    Some(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
-                    _ => return Err(err),
-                },
-            };
-
-            Ok(Some(TypeMappedRowsExt::new(rows)))
         }
     }
 }
