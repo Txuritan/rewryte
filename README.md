@@ -79,10 +79,10 @@ table Settings {
 
 `lib.rs`:
 ```rust
-rewryte::models!("./schema.dal");
+rewryte::models!("./schema.dal", ["sqlite"]);
 ```
 
-`lib.rs` (expanded, with `sqlite` feature):
+`lib.rs`:
 ```rust
 use anyhow::Context;
 
@@ -94,7 +94,7 @@ struct Settings {
 }
 
 impl rewryte::sqlite::FromRow for Settings {
-    fn from_row(row: &rusqlite::Row<'_>) -> anyhow::Result<Self>
+    fn from_row(row: &rewryte::sqlite::Row<'_>) -> anyhow::Result<Self>
     where
         Self: Sized,
     {
