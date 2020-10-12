@@ -1,6 +1,6 @@
 pub use rusqlite::*;
 
-use std::marker::PhantomData;
+use {std::marker::PhantomData, anyhow::Context as _};
 
 #[macro_export]
 macro_rules! sqlite_named_params {
@@ -27,6 +27,68 @@ pub trait FromRow {
     where
         Self: Sized;
 }
+
+macro_rules! impl_from_row {
+    ($( $from:ty, )*) => {
+        $(
+            impl FromRow for $from {
+                fn from_row(row: &Row) -> anyhow::Result<Self>
+                where
+                    Self: Sized,
+                {
+                    row.get(0)
+                        .context(concat!("Failed to get data for row index 0: `", stringify!($from), "`"))
+                }
+            }
+        )*
+    };
+}
+
+impl_from_row![
+    bool,
+    u8, u16, u32, i8, i16, i32, i64, isize,
+    f64,
+    String, Vec<u8>,
+];
+
+#[cfg(feature = "with-chrono")]
+impl_from_row![
+    chrono::NaiveDate,
+    chrono::NaiveTime,
+    chrono::NaiveDateTime,
+];
+
+#[cfg(feature = "with-chrono")]
+impl FromRow for chrono::DateTime<chrono::Local> {
+    fn from_row(row: &Row) -> anyhow::Result<Self>
+    where
+        Self: Sized,
+    {
+        row.get(0)
+            .context(concat!("Failed to get data for row index 0: `DateTime`"))
+    }
+}
+
+#[cfg(feature = "with-chrono")]
+impl FromRow for chrono::DateTime<chrono::Utc> {
+    fn from_row(row: &Row) -> anyhow::Result<Self>
+    where
+        Self: Sized,
+    {
+        row.get(0)
+            .context(concat!("Failed to get data for row index 0: `DateTime`"))
+    }
+}
+
+#[cfg(feature = "with-serde-json")]
+impl_from_row![
+    serde_json::Value,
+];
+
+#[cfg(feature = "with-uuid")]
+impl_from_row![
+    uuid::Uuid,
+];
 
 /// An iterator over the mapped resulting rows of a query.
 ///

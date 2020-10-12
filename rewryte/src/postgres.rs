@@ -1,11 +1,15 @@
 pub use tokio_postgres::*;
 
 use {
+    anyhow::Context as _,
     futures::{Stream, TryStreamExt},
     std::{
+        collections::HashMap,
         marker::{PhantomData, PhantomPinned},
+        net::IpAddr,
         pin::Pin,
         task::{Context, Poll},
+        time::SystemTime,
     },
     tokio_postgres::types::ToSql,
 };
@@ -30,6 +34,71 @@ pub trait FromRow {
     fn from_row(row: Row) -> anyhow::Result<Self>
     where
         Self: Sized;
+}
+
+macro_rules! impl_from_row {
+    ($( $from:ty, )*) => {
+        $(
+            impl FromRow for $from {
+                fn from_row(row: Row) -> anyhow::Result<Self>
+                where
+                    Self: Sized,
+                {
+                    row.try_get(0)
+                        .context(concat!("Failed to get data for row index 0: `", stringify!($from), "`"))
+                }
+            }
+        )*
+    };
+}
+
+impl_from_row![
+    bool,
+    i8, i16, i32, u32, i64,
+    f32, f64,
+    String, Vec<u8>,
+    HashMap<String, Option<String>>,
+    SystemTime,
+    IpAddr,
+];
+
+#[cfg(feature = "with-chrono")]
+impl_from_row![
+    chrono::NaiveDate,
+    chrono::NaiveTime,
+    chrono::NaiveDateTime,
+];
+
+#[cfg(feature = "with-chrono")]
+impl FromRow for chrono::DateTime<chrono::Local> {
+    fn from_row(row: Row) -> anyhow::Result<Self>
+    where
+        Self: Sized,
+    {
+        row.try_get(0)
+            .context(concat!("Failed to get data for row index 0: `DateTime`"))
+    }
+}
+
+#[cfg(feature = "with-serde-json")]
+impl_from_row![
+    serde_json::Value,
+];
+
+#[cfg(feature = "with-uuid")]
+impl_from_row![
+    uuid::Uuid,
+];
+
+#[cfg(feature = "with-chrono")]
+impl FromRow for chrono::DateTime<chrono::Utc> {
+    fn from_row(row: Row) -> anyhow::Result<Self>
+    where
+        Self: Sized,
+    {
+        row.try_get(0)
+            .context(concat!("Failed to get data for row index 0: `DateTime`"))
+    }
 }
 
 #[async_trait::async_trait]
