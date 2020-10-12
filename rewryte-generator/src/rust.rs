@@ -232,11 +232,11 @@ pub fn write_table(
     let juniper_derive = if options.juniper {
         if cfg!(feature = "feature-gate-juniper") {
             quote::quote! {
-                #[cfg_attr(feature = "rewryte-juniper", derive(juniper::GraphQLEnum))]
+                #[cfg_attr(feature = "rewryte-juniper", derive(juniper::GraphQLObject))]
             }
         } else {
             quote::quote! {
-                #[derive(juniper::GraphQLEnum)]
+                #[derive(juniper::GraphQLObject)]
             }
         }
     } else {
