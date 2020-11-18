@@ -67,11 +67,11 @@ pub fn write_enum(decl: &Enum, writer: &mut impl io::Write, options: Options) ->
     let sqlx_derive = if options.sqlx {
         if cfg!(feature = "feature-gate-sqlx") {
             quote::quote! {
-                #[cfg_attr(feature = "rewryte-sqlx", derive(sqlx::FromRow))]
+                #[cfg_attr(feature = "rewryte-sqlx", derive(sqlx::Type))]
             }
         } else {
             quote::quote! {
-                #[derive(sqlx::FromRow)]
+                #[derive(sqlx::Type)]
             }
         }
     } else {
