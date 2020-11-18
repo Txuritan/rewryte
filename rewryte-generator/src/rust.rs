@@ -9,6 +9,7 @@ use {
 pub struct Options {
     pub juniper: bool,
     pub serde: bool,
+    pub sqlx: bool,
 }
 
 pub fn write_schema(
@@ -63,13 +64,27 @@ pub fn write_enum(decl: &Enum, writer: &mut impl io::Write, options: Options) ->
         quote::quote! {}
     };
 
+    let sqlx_derive = if options.sqlx {
+        if cfg!(feature = "feature-gate-sqlx") {
+            quote::quote! {
+                #[cfg_attr(feature = "rewryte-sqlx", derive(sqlx::FromRow))]
+            }
+        } else {
+            quote::quote! {
+                #[derive(sqlx::FromRow)]
+            }
+        }
+    } else {
+        quote::quote! {}
+    };
+
     let variants = decl
         .variants
         .iter()
         .map(|v| quote::format_ident!("{}", v))
         .collect::<Vec<_>>();
 
-    let variants_rename = decl
+    let serde_variants_rename = decl
         .variants
         .iter()
         .map(|v| {
@@ -91,6 +106,28 @@ pub fn write_enum(decl: &Enum, writer: &mut impl io::Write, options: Options) ->
         })
         .collect::<Vec<_>>();
 
+        let sqlx_variants_rename = decl
+            .variants
+            .iter()
+            .map(|v| {
+                if options.sqlx {
+                    let kebab = v.to_kebab_case();
+    
+                    if cfg!(feature = "feature-gate-sqlx") {
+                        quote::quote! {
+                            #[cfg_attr(feature = "rewryte-sqlx", sqlx(rename = #kebab))]
+                        }
+                    } else {
+                        quote::quote! {
+                            #[sqlx(rename = #kebab)]
+                        }
+                    }
+                } else {
+                    quote::quote! {}
+                }
+            })
+            .collect::<Vec<_>>();
+
     writeln!(
         writer,
         "{}",
@@ -98,9 +135,11 @@ pub fn write_enum(decl: &Enum, writer: &mut impl io::Write, options: Options) ->
             #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
             #juniper_derive
             #serde_derive
+            #sqlx_derive
             pub enum #ident {
                 #(
-                    #variants_rename
+                    #serde_variants_rename
+                    #sqlx_variants_rename
                     #variants,
                 )*
             }
@@ -257,6 +296,20 @@ pub fn write_table(
         quote::quote! {}
     };
 
+    let sqlx_derive = if options.sqlx {
+        if cfg!(feature = "feature-gate-sqlx") {
+            quote::quote! {
+                #[cfg_attr(feature = "rewryte-sqlx", derive(sqlx::FromRow))]
+            }
+        } else {
+            quote::quote! {
+                #[derive(sqlx::FromRow)]
+            }
+        }
+    } else {
+        quote::quote! {}
+    };
+
     let field_names = decl
         .columns
         .iter()
@@ -305,6 +358,7 @@ pub fn write_table(
             #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
             #juniper_derive
             #serde_derive
+            #sqlx_derive
             pub struct #ident {
                 #(
                     pub #field_names: #field_types,

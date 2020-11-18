@@ -59,6 +59,10 @@ where
                 if mapped.by_ref().any(|value| *value == "serde") {
                     options.serde = true;
                 }
+
+                if mapped.by_ref().any(|value| *value == "sqlx") {
+                    options.sqlx = true;
+                }
             }
 
             if let Err(err) = rewryte_generator::rust::write_schema(&schema, writer, options) {
